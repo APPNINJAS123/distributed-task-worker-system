@@ -9,19 +9,21 @@ It's all Python. The server, workers and client only use the standard library. O
 ## How it looks
 
 ```
-   client
-     |
-     v
-  +-------------+                       +------------------+
-  | task server |  writes worker loads  |  Ryu controller  |
-  |  queue      | --------------------> |  (load_balancer) |
-  |  scheduler  |  /tmp/dtn_worker_     +--------+---------+
-  +------+------+       loads.json               | OpenFlow rules
-         |                                       v
-        s1 --------- s2 ---------+
-         \                       s4 ---- w1, w2, w3
-          ---------- s3 ---------+
+        client
+          |
+     task server  ---- worker loads ---->  Ryu controller
+  (queue, scheduler)                              |
+          |                                OpenFlow rules
+          s1  <---------------------------- to all switches
+         /  \
+       s2    s3      two paths
+         \  /
+          s4
+        /  |  \
+      w1   w2   w3
 ```
+
+Client, server and workers talk over TCP. The server writes the worker loads to /tmp/dtn_worker_loads.json, and Ryu reads them from there.
 
 The server and the workers are connected by two paths, one through s2 and one through s3. The controller sorts the workers by load and splits them between the two paths so one path doesn't get all the busy traffic. Say w1 is at 85%, w2 at 15% and w3 at 60%. Then w1 gets the s2 path to itself and w2 and w3 share s3. When the loads change, the controller rewrites the rules on s1 and s4 and the traffic moves.
 
