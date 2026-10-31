@@ -34,10 +34,10 @@ class TaskTopo(Topo):
             self.addLink(host, s4, port2=w["s4_port"])
 
 
-def start_worker(net, name, load):
+def start_worker(net, name, load, delay=1.0):
     net.get(name).cmd(
         f"cd {PROJECT_DIR} && python3 -u -m worker.worker --id {name} "
-        f"--server {SERVER['ip']} --load {load} >> /tmp/dtn_{name}.log 2>&1 &"
+        f"--server {SERVER['ip']} --load {load} --delay {delay} >> /tmp/dtn_{name}.log 2>&1 &"
     )
 
 
@@ -45,12 +45,12 @@ def stop_worker(net, name):
     net.get(name).cmd(f"pkill -f -- '--id {name} '")
 
 
-def start_apps(net):
+def start_apps(net, policy="least_loaded", loads=None, delay=1.0):
     srv = net.get(SERVER["name"])
-    srv.cmd(f"cd {PROJECT_DIR} && python3 -u -m server.task_server > /tmp/dtn_server.log 2>&1 &")
+    srv.cmd(f"cd {PROJECT_DIR} && python3 -u -m server.task_server --policy {policy} > /tmp/dtn_server.log 2>&1 &")
     time.sleep(1)
-    for w in WORKERS:
-        start_worker(net, w["name"], w["load"])
+    for i, w in enumerate(WORKERS):
+        start_worker(net, w["name"], loads[i] if loads else w["load"], delay)
     info("*** task server running on srv, workers running on " + ", ".join(w["name"] for w in WORKERS) + "\n")
     info("*** logs: /tmp/dtn_server.log and /tmp/dtn_w1.log etc.\n")
 

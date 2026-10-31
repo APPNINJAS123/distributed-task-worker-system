@@ -29,9 +29,11 @@ def close_quietly(conn):
 
 
 class TaskServer:
-    def __init__(self, host, port):
+    def __init__(self, host, port, policy="least_loaded"):
         self.host = host
         self.port = port
+        self.policy = policy
+        self.turn = 0
         self.cond = threading.Condition()
         self.queue = deque()
         self.tasks = {}
@@ -45,7 +47,7 @@ class TaskServer:
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind((self.host, self.port))
         listener.listen()
-        log(f"listening on {self.host}:{self.port}")
+        log(f"listening on {self.host}:{self.port} (scheduling: {self.policy})")
         while True:
             conn, addr = listener.accept()
             threading.Thread(target=self.handle_connection, args=(conn, addr), daemon=True).start()
@@ -79,7 +81,10 @@ class TaskServer:
                 task = self.tasks.get(msg.get("task_id"))
                 if task is None:
                     return {"type": "ERROR", "message": "unknown task id"}
-                return {"type": "TASK_INFO", "task": dict(task)}
+                info = {k: v for k, v in task.items() if k != "input"}
+                if task["status"] not in ("done", "failed"):
+                    info["result"] = None
+                return {"type": "TASK_INFO", "task": info}
         if kind == "STATUS":
             return self.status()
         return {"type": "ERROR", "message": f"unknown message type {kind}"}
@@ -98,6 +103,8 @@ class TaskServer:
                 "result": None,
                 "error": None,
                 "attempts": 0,
+                "submitted": time.time(),
+                "finished": None,
             }
             self.queue.append(task_id)
             log(f"task {task_id} queued: {operation}({short(data, 40)})")
@@ -173,6 +180,7 @@ class TaskServer:
             task["result"] = msg.get("result")
             task["error"] = msg.get("error")
             task["status"] = "failed" if task["error"] else "done"
+            task["finished"] = time.time()
         if task["error"]:
             log(f"task {task_id} failed on {worker_id}: {task['error']}")
         else:
@@ -195,6 +203,13 @@ class TaskServer:
             log(f"put tasks {lost} back in the queue")
 
     def pick_worker(self):
+        if self.policy == "round_robin":
+            ids = sorted(wid for wid, w in self.workers.items() if w["ready"])
+            if not ids:
+                return None
+            wid = ids[self.turn % len(ids)]
+            worker = self.workers[wid]
+            return wid if len(worker["active"]) < worker["capacity"] else None
         free = [
             (w["load"], len(w["active"]), wid)
             for wid, w in self.workers.items()
@@ -232,6 +247,7 @@ class TaskServer:
                 task["worker"] = worker_id
                 task["attempts"] += 1
                 worker["active"].add(task_id)
+                self.turn += 1
                 worker["load"] = min(100.0, worker["load"] + 100.0 / worker["capacity"])
             log(f"task {task_id} ({task['operation']}) -> {worker_id}   loads: {loads}")
 
@@ -265,9 +281,10 @@ def main():
     parser = argparse.ArgumentParser(description="central task server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--policy", choices=["least_loaded", "round_robin"], default="least_loaded")
     args = parser.parse_args()
     try:
-        TaskServer(args.host, args.port).serve_forever()
+        TaskServer(args.host, args.port, args.policy).serve_forever()
     except KeyboardInterrupt:
         log("shutting down")
 

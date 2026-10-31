@@ -110,7 +110,7 @@ class Worker:
         self.log(f"got task {task_id}: {operation}({short(data, 40)})")
         self.send(sock, self.status_message())
         started = time.time()
-        time.sleep(self.delay)
+        time.sleep(self.delay * (1 + self.base_load / 25))
         try:
             result = OPERATIONS[operation](data)
             error = None
@@ -147,7 +147,7 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--load", type=int, default=20, help="pretend background load in percent")
     parser.add_argument("--capacity", type=int, default=2, help="how many tasks it can run at once")
-    parser.add_argument("--delay", type=float, default=1.0, help="extra seconds per task so the demo is easy to follow")
+    parser.add_argument("--delay", type=float, default=1.0, help="seconds per task, longer when the worker is busy")
     parser.add_argument("--vary", action="store_true", help="change the background load every 15 seconds")
     args = parser.parse_args()
     worker = Worker(args.id, args.server, args.port, max(0, min(100, args.load)), max(1, args.capacity), args.delay, args.vary)

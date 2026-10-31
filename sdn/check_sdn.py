@@ -100,6 +100,24 @@ def run_checks(net):
     single = client(net, "submit factorial 10 --wait")
     check("a new task still works after the reroute", "3628800" in single)
     srv = net.get(SERVER["name"])
+    pings_through_paths(net, srv)
+
+    say("\ntaking the s1-s2 link down ...")
+    net.configLinkStatus("s1", "s2", "down")
+    everyone_on_s3 = {"w1": "s3", "w2": "s3", "w3": "s3"}
+    paths = wait_for(lambda: current_paths(net) if current_paths(net) == everyone_on_s3 else None, 15)
+    check("controller moved every worker to s3 when the s2 link broke",
+          paths == everyone_on_s3, f"flows on s1 say {current_paths(net)}")
+    single = client(net, "submit factorial 12 --wait")
+    check("tasks still work while the s2 link is down", "479001600" in single)
+
+    net.configLinkStatus("s1", "s2", "up")
+    paths = wait_for(lambda: "s2" in current_paths(net).values(), 15)
+    check("traffic is split over both paths again once the link is back", bool(paths),
+          f"flows on s1 say {current_paths(net)}")
+
+
+def pings_through_paths(net, srv):
     for name, ip, path, other in (("w2", "10.0.0.12", "s2", "s3"), ("w1", "10.0.0.11", "s3", "s2")):
         on_path, off_path = packets_through(net, path), packets_through(net, other)
         srv.cmd(f"ping -c 20 -i 0.05 {ip}")

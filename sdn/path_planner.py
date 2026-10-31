@@ -18,11 +18,11 @@ def read_worker_loads(path=LOADS_FILE):
     return data.get("workers", {})
 
 
-def plan_paths(loads):
-    totals = {p: 0.0 for p in PATHS}
+def plan_paths(loads, paths=PATHS):
+    totals = {p: 0.0 for p in paths}
     plan = {}
     for key, load in sorted(loads.items(), key=lambda item: (-item[1], item[0])):
-        best = min(PATHS, key=lambda p: (totals[p], PATHS.index(p)))
+        best = min(paths, key=lambda p: (totals[p], PATHS.index(p)))
         plan[key] = best
         totals[best] += load + 1
     return plan, totals

@@ -27,6 +27,9 @@ from sdn.network import (
 from sdn.path_planner import PATHS, plan_paths, read_worker_loads
 
 CHECK_EVERY = 3
+MODE = os.environ.get("DTN_ROUTING", "dynamic")
+S1_PORT_TO_PATH = {port: path for path, port in S1_UPLINK.items()}
+S4_PORT_TO_PATH = {port: path for path, port in S4_UPLINK.items()}
 
 
 class LoadAwareController(app_manager.RyuApp):
@@ -40,6 +43,8 @@ class LoadAwareController(app_manager.RyuApp):
         self.paths = {w["ip"]: "s2" for w in WORKERS}
         self.loads = {}
         self.last_bytes = {}
+        self.alive = set(PATHS)
+        self.logger.info("routing mode: %s", MODE)
         self.monitor_thread = hub.spawn(self.monitor)
 
     def add_flow(self, dp, priority, match, actions):
@@ -132,19 +137,42 @@ class LoadAwareController(app_manager.RyuApp):
         self.loads = {
             info["ip"]: float(info["load"]) for info in workers.values() if info.get("ip") in self.paths
         }
-        if not self.loads:
+        if MODE == "static" or not self.alive:
             return
-        plan, _ = plan_paths(self.loads)
+        loads = {ip: self.loads.get(ip, 0.0) for ip in self.paths}
+        plan, _ = plan_paths(loads, sorted(self.alive))
         for ip, path in plan.items():
             if self.paths[ip] == path:
                 continue
             old = self.paths[ip]
             self.paths[ip] = path
             self.logger.info(
-                "reroute %s (load %.0f%%): via %s -> via %s", self.ip_to_name[ip], self.loads[ip], old, path
+                "reroute %s (load %.0f%%): via %s -> via %s", self.ip_to_name[ip], loads[ip], old, path
             )
             for dp in self.datapaths.values():
                 self.install_path(dp, ip)
+
+    @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
+    def on_port_status(self, ev):
+        dp = ev.msg.datapath
+        port = ev.msg.desc
+        if dp.id == S1:
+            path = S1_PORT_TO_PATH.get(port.port_no)
+        elif dp.id == S4:
+            path = S4_PORT_TO_PATH.get(port.port_no)
+        else:
+            path = None
+        if path is None:
+            return
+        down = bool(port.state & dp.ofproto.OFPPS_LINK_DOWN) or bool(port.config & dp.ofproto.OFPPC_PORT_DOWN)
+        if down and path in self.alive:
+            self.alive.discard(path)
+            self.logger.info("link on the %s path went down, moving its traffic", path)
+            self.update_paths()
+        elif not down and path not in self.alive:
+            self.alive.add(path)
+            self.logger.info("link on the %s path is back up", path)
+            self.update_paths()
 
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
     def on_port_stats(self, ev):

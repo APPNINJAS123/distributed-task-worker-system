@@ -51,6 +51,10 @@ class PathPlannerTests(unittest.TestCase):
         self.assertEqual(plan["w2"], "s3")
         self.assertEqual(plan["w3"], "s3")
 
+    def test_everyone_moves_when_a_path_is_down(self):
+        plan, _ = plan_paths({"w1": 85, "w2": 15, "w3": 60}, ["s3"])
+        self.assertEqual(set(plan.values()), {"s3"})
+
 
 class SystemTests(unittest.TestCase):
     def setUp(self):
@@ -108,6 +112,19 @@ class SystemTests(unittest.TestCase):
         self.assertEqual(finished[task_id]["result"], 120)
         self.assertEqual(finished[task_id]["worker"], "backup")
         self.assertEqual(finished[task_id]["attempts"], 2)
+
+    def test_round_robin_takes_turns(self):
+        self.tearDown()
+        self.procs = [start("server.task_server", "--port", str(PORT), "--policy", "round_robin")]
+        self.client = connect()
+        self.add_worker("a", 90)
+        self.add_worker("b", 0)
+        self.wait_for_workers(2)
+        ids = [self.client.submit("factorial", 3) for _ in range(4)]
+        finished, _ = self.client.wait_for(ids, timeout=20)
+        workers = [finished[i]["worker"] for i in ids]
+        self.assertEqual(workers.count("a"), 2)
+        self.assertEqual(workers.count("b"), 2)
 
     def test_unknown_operation_is_rejected(self):
         with self.assertRaises(ValueError):

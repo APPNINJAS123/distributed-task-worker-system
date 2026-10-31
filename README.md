@@ -37,9 +37,11 @@ sdn/         topology.py      - Mininet network (4 switches, server, 3 workers)
              load_balancer.py - Ryu controller app
              path_planner.py  - decides which path each worker uses
              check_sdn.py     - runs the whole SDN demo and checks it (PASS/FAIL)
+             benchmark.py     - timing tests, our approach vs simple baselines
              network.py       - IPs, MACs and port numbers used by the files above
 tests/       test_system.py   - automated tests
 docker/      Dockerfile       - Linux image with Mininet, Open vSwitch and Ryu
+results/     benchmark_results.md - numbers from our last benchmark run
 ```
 
 ## Who did what
@@ -51,7 +53,7 @@ We split the work into three parts, one each, and put them together at the end.
 - TCP server on port 5050. Both workers and clients connect to it.
 - Gives every task a unique id and keeps a queue of tasks waiting to run.
 - Keeps a list of connected workers, with each one's load and how many tasks it's running.
-- The scheduler picks the worker with the lowest load that still has a free slot.
+- The scheduler picks the worker with the lowest load that still has a free slot. There's also a round robin mode (--policy round_robin) that just takes turns, which we use as the baseline in the benchmark.
 - Saves the results when workers send them back.
 - If a worker disconnects, or sends no heartbeat for 10 seconds, its unfinished tasks go back to the front of the queue and another worker picks them up.
 - Every 2 seconds it writes the worker loads to /tmp/dtn_worker_loads.json. That's how the SDN part gets the loads.
@@ -61,7 +63,7 @@ We split the work into three parts, one each, and put them together at the end.
 - Connects to the server and registers with a name (w1, w2 and so on).
 - Gets tasks, runs each one in its own thread and sends the result back.
 - Sends a heartbeat with its load every 2 seconds, and also right when a task starts or finishes.
-- The --load option fakes some background load, so we can show the scheduler avoiding busy workers. With --vary, that load changes randomly every 15 seconds.
+- The --load option fakes some background load, so we can show the scheduler avoiding busy workers. A busier worker also runs tasks slower, like a real loaded machine would. With --vary, that load changes randomly every 15 seconds.
 - If the server goes down, the worker retries every 3 seconds and registers again once it's back.
 - Supported tasks: factorial, prime_check, sum_range, sort, matrix_multiply.
 
@@ -70,7 +72,9 @@ We split the work into three parts, one each, and put them together at the end.
 - Mininet topology: the server is on s1, there are two parallel paths (s2 and s3), and the workers are on s4.
 - Ryu controller using OpenFlow 1.3. It answers ARP requests itself, because the topology has a loop and normal flooding would go round forever. It also installs the IP forwarding rules.
 - Every 3 seconds it reads the worker loads, works out a path for each worker and reroutes the ones whose path changed.
+- If a link on one of the paths goes down, the switch tells the controller and it moves every worker onto the other path. When the link comes back, it splits them again.
 - It also reads port stats from s1 and prints how much traffic each path carries.
+- Setting DTN_ROUTING=static before starting it turns all of this off and sends everything through s2. We only use that as the baseline in the benchmark.
 - path_planner.py runs on its own without Mininet, so you can show the routing decision on a normal laptop.
 
 ## Messages
@@ -158,7 +162,13 @@ The first build takes a few minutes. Once it's done, this is the quickest way to
 docker run --rm -it --privileged -v "$PWD":/project dtn-sdn python3 -m sdn.check_sdn
 ```
 
-It starts Ryu, builds the network, starts the server and workers inside it, sends tasks, changes the worker loads and checks that the controller really moved the traffic. Each step gets a PASS or FAIL line, and at the end you should see 11/11 checks passed. The Testing section below lists what it checks.
+It starts Ryu, builds the network, starts the server and workers inside it, sends tasks, changes the worker loads, breaks a link and checks that the controller really moved the traffic each time. Each step gets a PASS or FAIL line, and at the end you should see 14/14 checks passed. The Testing section below lists what it checks.
+
+To run the timing tests (takes about 3 minutes):
+
+```
+docker run --rm -it --privileged -v "$PWD":/project dtn-sdn python3 -m sdn.benchmark
+```
 
 If you'd rather try things yourself, open a shell in the container:
 
@@ -197,7 +207,7 @@ ryu-manager sdn/load_balancer.py
 sudo python3 -m sdn.topology
 ```
 
-You can run the self-check here too with sudo python3 -m sdn.check_sdn.
+You can run the self-check and the timing tests here too, with sudo python3 -m sdn.check_sdn and sudo python3 -m sdn.benchmark.
 
 ### Inside the mininet> prompt
 
@@ -242,7 +252,8 @@ These start a real server and workers on port 5099 and check that:
 - a batch of tasks all finish and are spread over more than one worker
 - if a worker is killed in the middle of a task, the task goes back in the queue and another worker finishes it
 - unknown operations are rejected
-- the path planner gives the busiest worker its own path
+- round robin mode really takes turns
+- the path planner gives the busiest worker its own path, and puts everyone on one path when the other is down
 
 ### SDN check
 
@@ -258,8 +269,11 @@ python3 -m sdn.check_sdn (inside Docker, or with sudo on Linux) tests the whole 
 8. the reroute shows up in the controller log
 9. a new task still works after the reroute
 10. pings to w2 now go through s2 and pings to w1 go through s3 (checked with the switch counters)
+11. the link between s1 and s2 is cut, and the controller moves every worker to s3
+12. tasks still work while that link is down
+13. the link comes back and traffic is split over both paths again
 
-Some steps check more than one thing, so there are 11 checks in total. If all 11 pass, the SDN part works.
+Some steps check more than one thing, so there are 14 checks in total. If all 14 pass, the SDN part works.
 
 ### Things to try by hand for the demo
 
@@ -284,12 +298,45 @@ w1 python3 -m worker.worker --id w1 --server 10.0.0.1 --load 5 > /tmp/dtn_w1.log
 
 Or start the workers with --vary so their load changes on its own every 15 seconds.
 
+Link failure: in Mininet, run link s1 s2 down. The Ryu terminal says the s2 path went down, and dump-flows s1 shows every worker on port 3. Tasks keep working. Run link s1 s2 up to bring it back.
+
+## Results
+
+We compared our approach with a simple version of each part, using python3 -m sdn.benchmark inside Mininet. Each run starts a fresh network. The full numbers are in results/benchmark_results.md.
+
+Experiment 1: scheduling. 30 normal tasks, least loaded against round robin (taking turns).
+
+| condition | scheduler | total time | avg time per task | tasks per worker |
+|---|---|---|---|---|
+| uneven loads 70/10/40 | round robin | 10.1 s | 5.2 s | w1=10, w2=10, w3=10 |
+| uneven loads 70/10/40 | least loaded | 6.1 s | 3.4 s | w1=6, w2=16, w3=8 |
+| equal loads 30/30/30 | round robin | 6.1 s | 3.4 s | w1=10, w2=10, w3=10 |
+| equal loads 30/30/30 | least loaded | 6.1 s | 3.4 s | w1=10, w2=10, w3=10 |
+
+When the workers are uneven, least loaded is about 40% faster, because it sends more work to the free worker (w2) and less to the busy one (w1). Round robin gives everyone the same number of tasks, so it keeps waiting on w1. When all workers are equally busy, both do the same, which is what you'd expect.
+
+Experiment 2: routing. Big sort tasks (100,000 numbers each, sent there and back) over the 10 Mbit/s links, dynamic SDN routing against static routing (everything through s2).
+
+| tasks | routing | total time | avg time per task | packets via s2 | packets via s3 |
+|---|---|---|---|---|---|
+| 6 | static | 6.6 s | 3.9 s | 233 | 0 |
+| 6 | dynamic | 4.8 s | 2.7 s | 131 | 140 |
+| 12 | static | 10.7 s | 5.1 s | 375 | 0 |
+| 12 | dynamic | 6.2 s | 2.9 s | 174 | 202 |
+
+With static routing everything squeezes through one 10 Mbit/s path and s3 sits unused. Dynamic routing spreads the workers over both paths, so it finishes about 28% faster with 6 tasks and 42% faster with 12. The more traffic there is, the bigger the difference.
+
+Link failure: when the s1-s2 link is cut, the controller moves all traffic to s3 within a second or two, and tasks keep finishing. When the link comes back, the traffic is split again. This is checked in sdn/check_sdn.py.
+
+Your numbers will be a bit different on another machine, but the pattern should be the same.
+
 ## What we kept simple on purpose
 
 - results are only kept in the server's memory, there's no database
 - no login or security on the sockets
 - the topology and port numbers are fixed in sdn/network.py
 - the controller balances by worker load only. It shows how much traffic each path carries but doesn't use that to decide.
+- link failure handling only knows about the links on our two paths (s1-s2, s1-s3, s2-s4, s3-s4)
 - worker load is simulated (background load plus a share for each running task), not real CPU usage
 
 ## Common problems

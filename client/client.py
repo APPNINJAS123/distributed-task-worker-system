@@ -1,5 +1,6 @@
 import argparse
 import json
+import random
 import socket
 import sys
 import time
@@ -63,6 +64,35 @@ class Client:
         return finished, pending
 
 
+def bench_tasks(kind, count):
+    if kind == "heavy":
+        numbers = [random.randint(0, 1_000_000) for _ in range(100_000)]
+        return [("sort", numbers)] * count
+    return [DEMO_TASKS[i % len(DEMO_TASKS)] for i in range(count)]
+
+
+def run_bench(client, kind, count):
+    started = time.time()
+    ids = [client.submit(operation, data) for operation, data in bench_tasks(kind, count)]
+    finished, pending = client.wait_for(ids, timeout=600)
+    total = time.time() - started
+    tasks = list(finished.values())
+    per_worker = {}
+    for task in tasks:
+        per_worker[task["worker"]] = per_worker.get(task["worker"], 0) + 1
+    times = [task["finished"] - task["submitted"] for task in tasks]
+    summary = {
+        "done": len(tasks),
+        "count": count,
+        "total_seconds": round(total, 2),
+        "avg_task_seconds": round(sum(times) / len(times), 2) if times else None,
+        "per_worker": dict(sorted(per_worker.items())),
+    }
+    print(f"{len(tasks)}/{count} tasks done in {total:.2f}s, average {summary['avg_task_seconds']}s per task")
+    print(f"tasks per worker: {summary['per_worker']}")
+    print("RESULT " + json.dumps(summary))
+
+
 def parse_input(text):
     try:
         return json.loads(text)
@@ -107,6 +137,10 @@ def main():
 
     sub.add_parser("status", help="show workers and their load")
 
+    bench = sub.add_parser("bench", help="send a batch, time it and print the numbers")
+    bench.add_argument("--kind", choices=["normal", "heavy"], default="normal")
+    bench.add_argument("--count", type=int, default=30)
+
     args = parser.parse_args()
 
     try:
@@ -136,6 +170,8 @@ def main():
                 print(f"not finished: {sorted(pending)}")
         elif args.command == "result":
             print_tasks([client.get_task(args.task_id)])
+        elif args.command == "bench":
+            run_bench(client, args.kind, max(1, args.count))
         elif args.command == "status":
             print_status(client.ask({"type": "STATUS"}))
     except ConnectionRefusedError:
