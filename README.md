@@ -6,6 +6,8 @@ So the scheduler decides which worker gets a task, and the SDN controller decide
 
 It's all Python. The server, workers and client only use the standard library. Only the SDN part needs Mininet and Ryu.
 
+Our project report is in [docs/project_report.pdf](docs/project_report.pdf) and the presentation slides are in [docs/presentation.pdf](docs/presentation.pdf).
+
 ## How it looks
 
 ```
@@ -44,6 +46,7 @@ sdn/         topology.py      - Mininet network (4 switches, server, 3 workers)
 tests/       test_system.py   - automated tests
 docker/      Dockerfile       - Linux image with Mininet, Open vSwitch and Ryu
 results/     benchmark_results.md - numbers from our last benchmark run
+docs/        project_report.pdf, presentation.pdf
 ```
 
 ## Who did what
