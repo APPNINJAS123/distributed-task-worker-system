@@ -80,7 +80,6 @@ We split the work into three parts, one each, and put them together at the end.
 - If a link on one of the paths goes down, the switch tells the controller and it moves every worker onto the other path. When the link comes back, it splits them again.
 - It also reads port stats from s1 and prints how much traffic each path carries.
 - Setting DTN_ROUTING=static before starting it turns all of this off and sends everything through s2. We only use that as the baseline in the benchmark.
-- path_planner.py runs on its own without Mininet, so you can show the routing decision on a normal laptop.
 
 ## Messages
 
@@ -136,20 +135,6 @@ Send the demo batch of 10 tasks and wait for the results:
 
 ```
 python3 -m client.client demo
-```
-
-Or send single tasks yourself:
-
-```
-python3 -m client.client submit factorial 10 --wait
-python3 -m client.client submit sort "[5, 2, 9, 1]" --wait
-python3 -m client.client submit matrix_multiply '{"a": [[1,2],[3,4]], "b": [[5,6],[7,8]]}' --wait
-```
-
-If you also want to see what the SDN controller would decide:
-
-```
-python3 -m sdn.path_planner
 ```
 
 The server window prints a line for every task it hands out, like this one:
