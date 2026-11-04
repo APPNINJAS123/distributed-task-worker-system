@@ -186,25 +186,6 @@ To run the timing tests (takes about 3 minutes):
 docker run --rm -it --privileged -v "$PWD":/project dtn-sdn python3 -m sdn.benchmark
 ```
 
-If you'd rather try things yourself, open a shell in the container:
-
-```
-docker run --rm -it --privileged --name dtn -v "$PWD":/project dtn-sdn bash
-```
-
-and run these inside it:
-
-```
-ryu-manager sdn/load_balancer.py > /tmp/dtn_ryu.log 2>&1 &
-python3 -m sdn.topology
-```
-
-To watch the controller while you type commands in Mininet, open a second terminal on your computer and run:
-
-```
-docker exec -it dtn tail -f /tmp/dtn_ryu.log
-```
-
 Mininet creates network interfaces and switches, so the container needs --privileged. If Docker runs on a Linux machine, you might have to run sudo modprobe openvswitch on that machine first. Docker Desktop on a Mac already has it.
 
 ### With a Linux VM
