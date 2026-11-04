@@ -272,30 +272,15 @@ python3 -m sdn.check_sdn (inside Docker, or with sudo on Linux) tests the whole 
 
 Some steps check more than one thing, so there are 14 checks in total. If all 14 pass, the SDN part works.
 
-### Things to try by hand for the demo
+### Showing a worker failure
 
-Load based scheduling: start the workers with different --load values and run client demo. The least loaded worker gets the first tasks, and once it fills up the server moves on to the next one.
-
-Worker failure: start a slow worker so it holds on to its tasks for a while:
+A good thing to show live. Start a slow worker so it holds on to its tasks for a while:
 
 ```
 python3 -m worker.worker --id slowpoke --load 0 --delay 8
 ```
 
-Run client demo, then press Ctrl+C on slowpoke while it's working. The server prints "worker slowpoke disconnected" and "put tasks [...] back in the queue", and the demo still finishes all 10 tasks. In Mininet you can do the same with w2 pkill -f "id w2".
-
-Worker reconnecting: stop the server while the workers are running. They keep printing "trying again in 3 seconds", and when you start the server again they register on their own.
-
-SDN rerouting: in Mininet, run srv python3 -m client.client demo --repeat 3. As the workers fill up their loads go up, and the Ryu terminal shows reroute lines. You can also restart a worker with a different load:
-
-```
-w1 pkill -f "id w1"
-w1 python3 -m worker.worker --id w1 --server 10.0.0.1 --load 5 > /tmp/dtn_w1.log 2>&1 &
-```
-
-Or start the workers with --vary so their load changes on its own every 15 seconds.
-
-Link failure: in Mininet, run link s1 s2 down. The Ryu terminal says the s2 path went down, and dump-flows s1 shows every worker on port 3. Tasks keep working. Run link s1 s2 up to bring it back.
+Run python3 -m client.client demo, then press Ctrl+C in the slowpoke window while it's working. The server prints "worker slowpoke disconnected" and "put tasks [...] back in the queue", and the demo still finishes all 10 tasks.
 
 ## Results
 
