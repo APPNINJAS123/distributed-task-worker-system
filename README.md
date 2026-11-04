@@ -97,6 +97,17 @@ server -> client   {"type": "ACK", "task_id": 22}
 
 The client can also send GET_RESULT (with a task_id) and STATUS.
 
+## Getting the code
+
+Download the project and go into its folder:
+
+```
+git clone https://github.com/APPNINJAS123/distributed-task-worker-system.git
+cd distributed-task-worker-system
+```
+
+Every command below has to be run from inside this folder. If you open a new terminal, cd into it again first. Otherwise you'll get "No module named server".
+
 ## Running it on your laptop (without SDN)
 
 You only need Python 3.8 or newer. Run every command from the project folder, each one in its own terminal.
