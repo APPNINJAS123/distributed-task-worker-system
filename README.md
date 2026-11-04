@@ -274,7 +274,7 @@ Some steps check more than one thing, so there are 14 checks in total. If all 14
 
 ### Showing a worker failure
 
-A good thing to show live. Start a slow worker so it holds on to its tasks for a while:
+Start a slow worker:
 
 ```
 python3 -m worker.worker --id slowpoke --load 0 --delay 8
